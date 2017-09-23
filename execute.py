@@ -21,7 +21,6 @@ import logging
 import datetime
 import url
 import time
-import smtplib
 from dateutil.relativedelta import relativedelta
 from logging.handlers import RotatingFileHandler
 
@@ -70,21 +69,23 @@ atomeUserId = config['atome_user_id']
 # Domoticz API
 domoticzApi = url.URL(domoticzServer)
 
-# Export data to Domoticz
-def export_days_values(res):
-    value = res['graphe']['data'][-1]['valeur']
-
-    if value < 0:
-        raise linky.LinkyLoginException('Value is less than 0, error in API')
-
+def get_counter_value():
     # Get value from Domoticz
     counter = domoticzApi.call({
         'type': 'devices',
         'rid': domoticzIdx
     }).json()
 
-    lastUpdate = counter['result'][0]['LastUpdate'].split(' ')[0]
-    counterValue = int(float(counter['result'][0]['Counter'].replace(' kWh', '')) * 1000)
+    # T1: creuse, T2: pleine
+    counterValues = counter['result'][0]['Data'].split(";")
+    print(counterValues)
+
+# Export data to Domoticz
+def export_days_values(res):
+    value = res['graphe']['data'][-1]['valeur']
+
+    if value < 0:
+        raise linky.LinkyLoginException('Value is less than 0, error in API')
 
     # Send to Domoticz only if data not send today
     if lastUpdate != time.strftime("%Y-%m-%d"):
@@ -116,6 +117,8 @@ def get_data_per_day(token):
 def main():
     try:
         logger.info("Logging as %s", atomeLogin)
+
+        get_counter_value()
 
         # Login
         token = atome.login(atomeLogin, atomePassword)
