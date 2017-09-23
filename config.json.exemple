@@ -1,0 +1,7 @@
+{
+    "domoticz_server": "your_domoticz_server_url",
+    "domoticz_idx": "your_domoticz_idx",
+    "atome_login": "login",
+    "atome_password": "password",
+    "atome_user_id": "xxx"
+}
