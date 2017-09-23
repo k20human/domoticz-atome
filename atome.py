@@ -30,6 +30,9 @@ API_ENDPOINT_DATA = '/api/graph/api/datasources/proxy/3/query'
 COOKIE_FILE = './cookie'
 COOKIE_NAME = 'PHPSESSID'
 
+class AtomeException(Exception):
+    pass
+
 class LoginException(Exception):
     # Thrown if an error was encountered while retrieving energy consumption data.
     pass
@@ -48,10 +51,13 @@ def get_cookie():
     return cookie
 
 def get_csrf_token():
-    response = requests.get(API_BASE_URI + API_ENDPOINT_LOGIN)
-    soup = BeautifulSoup(response.content, "html.parser")
+    req = requests.get(API_BASE_URI + API_ENDPOINT_LOGIN)
+    soup = BeautifulSoup(req.content, "html.parser")
 
-    return soup.find("input", {"name": "_csrf_token"})['value']
+    return {
+        'csrf_token': soup.find("input", {"name": "_csrf_token"})['value'],
+        'cookie': req.cookies.get(COOKIE_NAME)
+    }
 
 def login(username, password):
     # Try to load cookie from file
@@ -60,19 +66,20 @@ def login(username, password):
 
     # Get CSRF token
     token = get_csrf_token()
+    cookie = {COOKIE_NAME: token['cookie']}
 
     # Login the user into the Linky API.
     payload = {'_username': username,
                '_password': password,
-               '_csrf_token': token,
+               '_csrf_token': token['csrf_token'],
                '_remember_me': 'on',
                '_submit': 'Connexion'}
 
-    req = requests.post(API_BASE_URI + API_ENDPOINT_LOGIN_CHECK, data=payload, allow_redirects=False)
+    req = requests.post(API_BASE_URI + API_ENDPOINT_LOGIN_CHECK, data=payload, cookies=cookie, allow_redirects=False)
     session_cookie = req.cookies.get(COOKIE_NAME)
 
     if session_cookie is None:
-        raise LoginException("Login unsuccessful. Check your credentials.")
+        raise LoginException("Login unsuccessful. Check your credentials")
 
     # Store cookie inside file
     save_cookie(session_cookie, COOKIE_FILE)
@@ -88,16 +95,19 @@ def get_data(token, user_id):
         'epoch': 's',
         'q': (
             'SELECT max("energyActiveConsumedTotal") - min("energyActiveConsumedTotal")'
-            'FROM "electrical"'
-            'WHERE "user_id" =~ /^' + user_id + '$/  AND time > now() - 24h and time < now() - 1s'
-            'GROUP BY time(30m) fill(null)'
+            ' FROM "electrical"'
+            ' WHERE "user_id" =~ /^' + user_id + '$/  AND time > now() - 24h and time < now() - 1s'
+            ' GROUP BY time(30m) fill(null)'
         )
     }
 
     req = requests.get(API_BASE_URI + API_ENDPOINT_DATA, allow_redirects=False, cookies=cookie, params=params)
 
-    if req.status_code != 200:
+    if req.status_code == 302:
         os.remove(COOKIE_FILE)
-        return None
+        raise LoginException("Cookie expired")
+
+    if req.status_code != 200:
+        raise AtomeException('Can\'t get data from Atome')
 
     return req.json()

@@ -18,10 +18,8 @@ import json
 import os
 import sys
 import logging
-import datetime
 import url
-import time
-from dateutil.relativedelta import relativedelta
+import datetime
 from logging.handlers import RotatingFileHandler
 
 # Configuration file path
@@ -69,6 +67,7 @@ atomeUserId = config['atome_user_id']
 # Domoticz API
 domoticzApi = url.URL(domoticzServer)
 
+
 def get_counter_value():
     # Get value from Domoticz
     counter = domoticzApi.call({
@@ -78,68 +77,86 @@ def get_counter_value():
 
     # T1: creuse, T2: pleine
     counterValues = counter['result'][0]['Data'].split(";")
-    print(counterValues)
 
-# Export data to Domoticz
-def export_days_values(res):
-    value = res['graphe']['data'][-1]['valeur']
+    return {
+        'creuse': int(counterValues[0]),
+        'pleine': int(counterValues[1]),
+    }
 
-    if value < 0:
-        raise linky.LinkyLoginException('Value is less than 0, error in API')
 
-    # Send to Domoticz only if data not send today
-    if lastUpdate != time.strftime("%Y-%m-%d"):
-        res = domoticzApi.call({
-            'type': 'command',
-            'param': 'udevice',
-            'idx': domoticzIdx,
-            'svalue': counterValue + int(value * 1000)
-        })
+def get_current_index():
+    now = datetime.datetime.now()
 
-        if res.status_code == 200:
-            logger.info('Data successfully send to Domoticz')
-        else:
-            raise linky.LinkyLoginException('Can\'t add data to Domoticz')
-    else:
-        logger.info('Data already successfully send to Domoticz today')
+    today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today630 = now.replace(hour=6, minute=30, second=0, microsecond=0)
+    today2230 = now.replace(hour=22, minute=30, second=0, microsecond=0)
+    today2359 = now.replace(hour=23, minute=59, second=0, microsecond=0)
 
-# Date formatting
-def dtostr(date):
-    return date.strftime("%d/%m/%Y")
+    if now >= today0 and now < today630:
+        return 'creuse'
+    elif today630 >= today0 and now < today2230:
+        return 'pleine'
+    elif today2230 >= today0 and now <= today2359:
+        return 'creuse'
 
-def get_data_per_day(token):
-    today = datetime.date.today()
 
-    return linky.get_data_per_day(token, dtostr(today - relativedelta(days=1, months=1)),
-                                     dtostr(today - relativedelta(days=1)))
-
-# Main script
-def main():
+def login():
     try:
+        # Login
         logger.info("Logging as %s", atomeLogin)
 
-        get_counter_value()
-
-        # Login
-        token = atome.login(atomeLogin, atomePassword)
-
-        # Get data
-        atome.get_data(token, atomeUserId)
-
-        # Get datas
-        # res_day = call_enedis_api()
-        #
-        # logger.info("Logged in successfully!")
-        # logger.info("Retreiving data...")
-        #
-        # logger.info("Got datas!")
-        #
-        # # Send to Domoticz
-        # export_days_values(res_day)
-
+        return atome.login(atomeLogin, atomePassword)
     except atome.LoginException as exc:
         logger.error(exc)
         sys.exit(1)
+
+
+def get_data(token, prevent_while):
+    try:
+        # Get data
+        logger.info("Get dats from Atome")
+
+        return atome.get_data(token, atomeUserId)
+    except atome.LoginException as exc:
+        if prevent_while < 2:
+            # Cookie as expired
+            token = login()
+            return get_data(token, prevent_while + 1)
+        else:
+            logger.error(exc)
+            sys.exit(1)
+    except atome.AtomeException as exc:
+        logger.error(exc)
+        sys.exit(1)
+
+
+# Main script
+def main():
+    token = login()
+
+    values = get_data(token, 0)
+    counter = get_counter_value()
+    current_index = get_current_index()
+
+    # Get last value period (ie: if it's 22h29 get 22h00 - 22h30 period)
+    true_values = values['results'][0]['series'][0]['values']
+    last_value = true_values[-1]
+
+    # Create new counter value
+    counter[current_index] += last_value[1]
+
+    # Update Domoticz
+    res = domoticzApi.call({
+        'type': 'command',
+        'param': 'udevice',
+        'idx': domoticzIdx,
+        'svalue': str(counter['creuse']) + ';' + str(counter['pleine']) + ';0;0;0;0'
+    })
+
+    if res.status_code == 200:
+        logger.info('Data successfully send to Domoticz')
+    else:
+        logger.error('Can\'t send data to Domoticz')
 
 if __name__ == "__main__":
     main()
