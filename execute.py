@@ -142,6 +142,12 @@ def main():
     true_values = values['results'][0]['series'][0]['values']
     last_value = true_values[-1]
 
+    # Log infos
+    logger.info("Current index: %s", current_index)
+    logger.info("Counter HC: %d", counter['creuse'])
+    logger.info("Counter HP: %d", counter['pleine'])
+    logger.info("Current kwh: %d", last_value[1])
+
     # Create new counter value
     counter[current_index] += last_value[1]
 
