@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-sudo apt-get install python3 python3-bs
+sudo apt-get install python3 python3-bs4
 pip install requests
 git clone https://github.com/k20human/domoticz-atome.git
 ```
