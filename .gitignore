@@ -102,5 +102,6 @@ ENV/
 
 .idea
 config.json
-cookie
-user
+.cookie
+.user
+atome.log*

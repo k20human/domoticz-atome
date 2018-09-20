@@ -26,8 +26,8 @@ API_BASE_URI = 'https://esoftlink.esoftthings.com'
 API_ENDPOINT_LOGIN = '/api/user/login.json'
 API_ENDPOINT_DATA = '/graph-query-last-consumption'
 
-USER_FILE = './user'
-COOKIE_FILE = './cookie'
+USER_FILE = './.user'
+COOKIE_FILE = './.cookie'
 COOKIE_NAME = 'PHPSESSID'
 
 class AtomeException(Exception):
@@ -90,7 +90,7 @@ def get_data(token, user_ids):
     }
 
     url = API_BASE_URI + '/' + user_id + '/' + user_reference + API_ENDPOINT_DATA
-    req = requests.get(url, cookies=cookie, params=params)
+    req = requests.get(url, cookies=cookie, params=params, allow_redirects=False)
 
     if req.status_code == 302:
         os.remove(COOKIE_FILE)

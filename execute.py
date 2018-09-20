@@ -131,7 +131,7 @@ def get_data(token, user_ids, prevent_while):
     except atome.LoginException as exc:
         if prevent_while < 2:
             # Cookie as expired
-            token = login()
+            token, user_ids = login()
             return get_data(token, user_ids, prevent_while + 1)
         else:
             logger.error(exc)
