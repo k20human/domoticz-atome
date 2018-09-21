@@ -13,7 +13,7 @@ import requests
 
 class URL:
     def __init__(self, url):
-        self.baseUrl = 'http://' + url + '/json.htm'
+        self.baseUrl = url
 
     def call(self, params = None):
         req = requests.get(self.baseUrl, params=params)

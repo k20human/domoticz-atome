@@ -23,11 +23,11 @@ import os
 import sys
 
 API_BASE_URI = 'https://esoftlink.esoftthings.com'
-API_ENDPOINT_LOGIN = '/login'
-API_ENDPOINT_LOGIN_CHECK = '/login_check'
-API_ENDPOINT_DATA = '/api/graph/api/datasources/proxy/3/query'
+API_ENDPOINT_LOGIN = '/api/user/login.json'
+API_ENDPOINT_DATA = '/graph-query-last-consumption'
 
-COOKIE_FILE = './cookie'
+USER_FILE = './.user'
+COOKIE_FILE = './.cookie'
 COOKIE_NAME = 'PHPSESSID'
 
 class AtomeException(Exception):
@@ -37,71 +37,60 @@ class LoginException(Exception):
     # Thrown if an error was encountered while retrieving energy consumption data.
     pass
 
-def save_cookie(requests_cookiejar, filename):
+def save_file(request, filename):
     with open(filename, 'wb') as f:
-        pickle.dump(requests_cookiejar, f)
+        pickle.dump(request, f)
 
-def load_cookie(filename):
+def load_file(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
 
 def get_cookie():
-    cookie = load_cookie(COOKIE_FILE)
+    cookie = load_file(COOKIE_FILE)
 
     return cookie
 
-def get_csrf_token():
-    req = requests.get(API_BASE_URI + API_ENDPOINT_LOGIN)
-    soup = BeautifulSoup(req.content, "html.parser")
+def get_user():
+    user = load_file(USER_FILE)
 
-    return {
-        'csrf_token': soup.find("input", {"name": "_csrf_token"})['value'],
-        'cookie': req.cookies.get(COOKIE_NAME)
-    }
+    return user
 
 def login(username, password):
     # Try to load cookie from file
-    if os.path.isfile(COOKIE_FILE):
-        return get_cookie()
+    if os.path.isfile(COOKIE_FILE) and os.path.isfile(USER_FILE):
+        return get_cookie(), get_user()
 
-    # Get CSRF token
-    token = get_csrf_token()
-    cookie = {COOKIE_NAME: token['cookie']}
+    # Login the user into the Atome API.
+    payload = {"email": username,
+               "plainPassword": password}
 
-    # Login the user into the Linky API.
-    payload = {'_username': username,
-               '_password': password,
-               '_csrf_token': token['csrf_token'],
-               '_remember_me': 'on',
-               '_submit': 'Connexion'}
-
-    req = requests.post(API_BASE_URI + API_ENDPOINT_LOGIN_CHECK, data=payload, cookies=cookie, allow_redirects=False)
+    req = requests.post(API_BASE_URI + API_ENDPOINT_LOGIN, json=payload, headers={"content-type":"application/json"})
+    response_json = req.json()
     session_cookie = req.cookies.get(COOKIE_NAME)
 
     if session_cookie is None:
         raise LoginException("Login unsuccessful. Check your credentials")
 
     # Store cookie inside file
-    save_cookie(session_cookie, COOKIE_FILE)
+    save_file(session_cookie, COOKIE_FILE)
 
-    return get_cookie()
+    # Store user inside file
+    save_file(str(response_json['id']) + '_' + response_json['subscriptions'][0]['reference'], USER_FILE)
 
-def get_data(token, user_id):
+    return get_cookie(), get_user()
+
+def get_data(token, user_ids):
     # We send the session token so that the server knows who we are
     cookie = {COOKIE_NAME: token}
+    user_id, user_reference = user_ids.split('_')
 
     params = {
-        'db': 'esoftlink',
-        'epoch': 's',
-        'q': (
-            'SELECT max("energyActiveConsumedTotal") - min("energyActiveConsumedTotal")'
-            ' FROM "electrical"'
-            ' WHERE "user_id" =~ /^' + user_id + '$/  AND time > now() - 24h and time < now() - 1s'
-            ' GROUP BY time(30m) fill(null)'
-        )
+        'period': 'day',
+        'objective': 'false'
     }
 
-    req = requests.get(API_BASE_URI + API_ENDPOINT_DATA, allow_redirects=False, cookies=cookie, params=params)
+    url = API_BASE_URI + '/' + user_id + '/' + user_reference + API_ENDPOINT_DATA
+    req = requests.get(url, cookies=cookie, params=params, allow_redirects=False)
 
     if req.status_code == 302:
         os.remove(COOKIE_FILE)

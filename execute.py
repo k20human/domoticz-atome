@@ -20,7 +20,9 @@ import sys
 import logging
 import url
 import datetime
+import base64
 from logging.handlers import RotatingFileHandler
+from datetime import datetime, timedelta
 
 # Configuration file path
 configurationFile = './config.json'
@@ -55,18 +57,27 @@ domoticzServer = config['domoticz_server']
 # Domoticz IDX
 domoticzIdx = config['domoticz_idx']
 
+# Domoticz user
+domoticzLogin = config['domoticz_login']
+
+# Domoticz password
+domoticzPassword = config['domoticz_password']
+
 # Atome Login
 atomeLogin = config['atome_login']
 
 # Atome password
 atomePassword = config['atome_password']
 
-# Atome user ID
-atomeUserId = config['atome_user_id']
-
 # Domoticz API
-domoticzApi = url.URL(domoticzServer)
+if domoticzLogin:
+    b64domoticzlogin = base64.b64encode(domoticzLogin.encode())
+    b64domoticzpassword = base64.b64encode(domoticzPassword.encode())
+    domoticzServer = domoticzServer + '/json.htm?username=' + b64domoticzlogin.decode() + '&password=' + b64domoticzpassword.decode()
+else:
+    domoticzServer = domoticzServer + '/json.htm'
 
+domoticzApi = url.URL(domoticzServer)
 
 def get_counter_value():
     # Get value from Domoticz
@@ -85,7 +96,7 @@ def get_counter_value():
 
 
 def get_current_index():
-    now = datetime.datetime.now()
+    now = datetime.now()
 
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today630 = now.replace(hour=6, minute=30, second=0, microsecond=0)
@@ -111,17 +122,17 @@ def login():
         sys.exit(1)
 
 
-def get_data(token, prevent_while):
+def get_data(token, user_ids, prevent_while):
     try:
         # Get data
         logger.info("Get dats from Atome")
 
-        return atome.get_data(token, atomeUserId)
+        return atome.get_data(token, user_ids)
     except atome.LoginException as exc:
         if prevent_while < 2:
             # Cookie as expired
-            token = login()
-            return get_data(token, prevent_while + 1)
+            token, user_ids = login()
+            return get_data(token, user_ids, prevent_while + 1)
         else:
             logger.error(exc)
             sys.exit(1)
@@ -132,24 +143,34 @@ def get_data(token, prevent_while):
 
 # Main script
 def main():
-    token = login()
+    token, user_ids = login()
 
-    values = get_data(token, 0)
+    values = get_data(token, user_ids, 0)
     counter = get_counter_value()
     current_index = get_current_index()
 
+    last_value = {
+        'creuse': 0,
+        'pleine': 0,
+    }
+    now = datetime.now()
+
     # Get last value period (ie: if it's 22h29 get 22h00 - 22h30 period)
-    true_values = values['results'][0]['series'][0]['values']
-    last_value = true_values[-1]
+    for value in values['data']:
+        time = datetime.strptime(value['time'], '%Y-%m-%dT%H:%M:%SZ') + timedelta(hours=2)
+        if time.date() == now.date() and time.hour == now.hour:
+            last_value['creuse'] = value['consumption']['index1']
+            last_value['pleine'] = value['consumption']['index2']
 
     # Log infos
     logger.info("Current index: %s", current_index)
     logger.info("Counter HC: %d", counter['creuse'])
     logger.info("Counter HP: %d", counter['pleine'])
-    logger.info("Current kwh: %d", last_value[1])
+    logger.info("Current kwh HC: %d", last_value['creuse'])
+    logger.info("Current kwh HP: %d", last_value['pleine'])
 
     # Create new counter value
-    counter[current_index] += last_value[1]
+    counter[current_index] += last_value[current_index]
 
     # Update Domoticz
     res = domoticzApi.call({

@@ -12,5 +12,5 @@ Copy ``config.json.exemple`` to ``config.json`` and fill with your Domoticz and 
 
 Add to your cron tab (with ``crontab -e``):
 ```bash
-59,29 * * * * cd /home/pi/domoticz-atome && python3 execute.py
+58 * * * * cd /home/pi/domoticz-atome && python3 execute.py
 ```
